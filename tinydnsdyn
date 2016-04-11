@@ -1,0 +1,259 @@
+#!/usr/bin/python
+
+# Copyright 2011 Felix Hanley <felix@seconddrawer.com.au>
+# Modify by: tesla@v-ip.fr
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2, as 
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301  USA
+
+import sys
+import os
+import base64
+import crypt
+import urlparse
+import SimpleHTTPServer
+import SocketServer
+from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
+from SocketServer import ThreadingMixIn
+import threading
+from optparse import OptionParser
+
+class RequestHandler(BaseHTTPRequestHandler):
+    """handle requests to BaseHTTPServer"""
+
+    def headers_denied(self):
+        self.send_response(401)
+        self.send_header('Content-type', 'text/html')
+        self.send_header('WWW-Authenticate', 'Basic realm=\"tinyDNSdyn\"')
+
+    def refresh_cache(self):
+
+	errno = os.system("/usr/bin/svc -t /etc/dnscache/")
+	if errno != 0:
+		raise RuntimeError("Problem refresh cache")
+    
+    def do_GET(self):
+        self.auth = Authorizer()
+        self.datafile = DataFile()
+
+        response = 'nohost'
+        hosts = []
+        address = self.client_address[0]
+        auth_header= self.headers.getheader('Authorization')
+        # get query string
+        path,_,query_str = self.path.partition('?')
+        query = urlparse.parse_qs(query_str)
+
+	if not auth_header:	
+            self.headers_denied()
+            response = 'badauth'    
+        else:
+            passhash = auth_header.replace('Basic ','',1).strip()
+            username,password = base64.b64decode(passhash).split(':',1)
+            if self.auth.check(username, password):
+		if path == '/' or path == '/delete':
+                  if 'hostname' not in query:
+                    response = 'notfqdn'
+                  else:
+		    if path == '/':
+                      # use given ip address?
+                      if 'myip' in query: address = query['myip'][0]
+		      uuid=None
+		      if 'uuid' in query: uuid = query['uuid'][0]
+                      # clean up all the hostnames
+                      for hostlist in query['hostname']:
+                        for hostname in hostlist.split(','):
+                            hosts.append(hostname)
+                      # update each hostname
+                      for hostname in hosts:
+                        if self.auth.check(username, password, hostname):
+                            # make the changes to the file
+                            result = self.datafile.update(address, hostname)
+                            if result == 1:
+                                response = 'good'
+                            elif result == 0:
+                                response = 'nochg'
+
+		    if path == '/delete':
+                      hostname=query['hostname'][0]
+                      result = self.datafile.update(address,hostname,1) 
+                      if result == 1:
+                        response = 'delete'
+		      else:
+		        response = 'nochg'
+
+		    self.refresh_cache()
+                    # successful
+                    self.send_response(200)
+		else:
+		  response = 'notfound'
+            	  self.send_response(404)
+
+            else:
+                self.headers_denied()
+                response = 'badauth'
+
+	    if response == "nohost":
+		 errno = os.system("cd %s && ./add-ns %s %s" % (options.root,hostname,"127.0.0.1") )
+                 if errno != 0:
+                	raise RuntimeError("problem adding host")
+
+		 errno = os.system("cd %s && ./add-alias %s %s" % (options.root,hostname,address) )
+                 if errno != 0:
+                	raise RuntimeError("problem adding alias")	
+		 
+		 if uuid is not None:
+		   errno = os.system("cd %s && ./add-ns %s %s" % (options.root,uuid,"127.0.0.1") )
+                   if errno != 0:
+                     raise RuntimeError("problem adding host")
+
+		   errno = os.system("cd %s && echo \"'%s:%s\" >> data" % (options.root,uuid,hostname))
+		   if errno != 0:
+		     raise RuntimeError("Error create uuid")
+
+		 errno = os.system("cd %s && make -s" % options.root)
+		 if errno != 0:
+			raise RuntimeError("problem executing Makefile")
+			
+		 self.refresh_cache()
+		 response = 'new'
+
+            self.datafile.commit()
+
+        self.end_headers()
+        self.wfile.write(response)
+        sys.stderr.write("client: %s, status: %s\n" % (address, response))
+
+
+class Authorizer:
+    """Authorise the user using htpasswd file"""
+
+    def __init__(self):
+        self.filename = options.passfile
+        self.entries = []
+        lines = open(self.filename, 'r').readlines()
+        for line in lines:
+            entry = [x.strip() for x in line.split(':',2)]
+            self.entries.append(entry)
+
+    def check(self, username, password, fqdn=None):
+        for entry in self.entries:
+            if entry[0] == username:
+                if entry[1] == crypt.crypt(password, entry[1]):
+                    if fqdn == None or len(entry) == 2 or fqdn in entry[2].split(','):
+                        return True
+
+        return False
+
+
+class DataFile:
+    """Read and write the data file"""
+
+    def __init__(self):
+        self.changed = False
+        self.lines = []
+        self.datafile_path = os.path.join(options.root, options.data)
+        self.tmpfile_path = os.path.join(options.root, "data.tinydnsdyn.tmp")
+        self.datafile = open(self.datafile_path,"r")
+        self.tmpfile = open(self.tmpfile_path,"w")
+
+    def update(self, address, hostname,remove=0):
+        """update the temporary data file"""
+
+        result = -1
+        for line in self.datafile:
+	    hostnamefound=0
+            if line[0] in ['+','=']:
+                fields = line.split(":",3)
+                # i think these prefixes should work?!
+                if fields[0].lstrip("+=.*") == hostname:
+		    hostnamefound=1
+                    # default ttl?
+                    if len(fields) > 2:
+                        tail = fields[2]
+                    else:
+                        tail = options.ttl
+
+                    # retain the tail
+                    if len(fields) > 3:
+                        tail += ':' + fields[3]
+
+                    if fields[1] != address:
+                        line = "%s:%s:%s\n" % (fields[0],address,tail)
+                        result = 1
+                        self.changed = True
+                    else:
+                        result = 0
+	    elif line[0] in ['.']:
+	      fields = line.split(":",4)
+	      if fields[0].lstrip(".") == hostname:
+	        hostnamefound=1
+	    elif line[0] in ['\'']:
+	      fields = line.split(":",3)
+	      if fields[0].lstrip("\'") == hostname:
+	         hostnamefound=1
+
+	    if not (remove == 1 and hostnamefound) :
+            	self.tmpfile.write(line)
+	    else:
+	        self.changed = True
+		result=1
+
+        self.tmpfile.close()
+        return result
+
+    def commit(self):
+        """overwrite data file with temp one"""
+        if self.changed:
+            os.rename(self.tmpfile_path, self.datafile_path)
+            # now run the tinydns-data prog
+            errno = os.system("cd %s && make -s" % options.root)
+            if errno != 0:
+                raise RuntimeError("problem executing Makefile")
+
+    def __del__(self):
+        try: os.remove(self.tmpfile_path)
+        except: pass
+    
+
+def main():
+
+    usage = "usage: %prog [options]"
+    parser = OptionParser(usage=usage)
+    parser.add_option("-r", "--root", dest="root",
+            help="absolute path to the tinydns data directory")
+    parser.add_option("-d", "--data", dest="data",
+            help="data file to update, relative to root (default: tinydnsdyn.data)")
+    parser.add_option("-t", "--ttl", dest="ttl",
+            help="default TTL (default: 3600)")
+    parser.add_option("-a", "--address", dest="address",
+            help="the address to bind to (default: all)")
+    parser.add_option("-p", "--port", dest="port",
+            help="the port to listen on (default: 5353)")
+    parser.add_option("-f", "--passfile", dest="passfile",
+            help="the password file (default: htpasswd)")
+
+    # defaults
+    parser.set_defaults(root="/service/tinydns/root", address='',
+            data="data", port=80, ttl=3600,
+            passfile='/service/tinydns/htpasswd')
+    global options
+    (options, args) = parser.parse_args()
+
+
+    httpd = HTTPServer((options.address, options.port), RequestHandler)
+    httpd.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
