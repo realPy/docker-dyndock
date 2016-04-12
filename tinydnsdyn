@@ -121,7 +121,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 		   if errno != 0:
 		     raise RuntimeError("Error create uuid")
 
-		 errno = os.system("cd %s && make -s" % options.root)
+		 errno = os.system("cd %s;rm data.cdb;make -s" % options.root)
 		 if errno != 0:
 			raise RuntimeError("problem executing Makefile")
 			
@@ -217,7 +217,7 @@ class DataFile:
         if self.changed:
             os.rename(self.tmpfile_path, self.datafile_path)
             # now run the tinydns-data prog
-            errno = os.system("cd %s && make -s" % options.root)
+            errno = os.system("cd %s; rm data.cdb; make -s" % options.root)
             if errno != 0:
                 raise RuntimeError("problem executing Makefile")
 

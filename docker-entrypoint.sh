@@ -9,5 +9,5 @@ echo "nameserver $IP"> /etc/resolv.conf
 
 /usr/bin/tinydnsdyn &
 
-(nc $GW 3333 <&- | /eventListener.sh ) &
-/usr/bin/svscanboot
+/bin/sh /eventListener.sh&
+/usr/bin/svscanboot 

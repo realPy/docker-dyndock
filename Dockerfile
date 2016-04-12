@@ -40,6 +40,8 @@ RUN apt-get install -y dnsutils
 
 COPY ./JSON.sh /
 COPY ./eventListener.sh /
+COPY ./manage.sh /
+
 COPY ./docker-entrypoint.sh /
 COPY ./tinydnsdyn /usr/bin/
 
