@@ -1,7 +1,6 @@
 #!/bin/sh
 
-IP=$(ip route|awk '/src/ { print $9 }')
-GW=$(ip route|awk '/via/ { print $3 }')
+IP=$(ifconfig eth0 | grep "inet addr" | cut -d ':' -f 2 | cut -d ' ' -f 1)
 
 
 echo "$IP"> /etc/dnscache/env/IP
@@ -9,5 +8,5 @@ echo "nameserver $IP"> /etc/resolv.conf
 
 /usr/bin/tinydnsdyn &
 
-/bin/sh /eventListener.sh&
-/usr/bin/svscanboot 
+python /event.py&
+/usr/local/bin/svscanboot 

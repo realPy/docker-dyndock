@@ -2,45 +2,45 @@
 #
 # VERSION               0.0.2
 
-FROM ubuntu:14.04
+FROM alpine:edge
 MAINTAINER Tesla <tesla@v-ip.fr>
 
-RUN apt-get update && apt-get install -y build-essential && apt-get install -y wget && apt-get install -y ucspi-tcp && apt-get install -y daemontools
-
-
-RUN wget https://cr.yp.to/djbdns/djbdns-1.05.tar.gz
-RUN tar xvfz djbdns-1.05.tar.gz
-RUN echo gcc -O2 -include /usr/include/errno.h > djbdns-1.05/conf-cc
-RUN cd djbdns-1.05;make setup check
-RUN rm -rf /djbdns-1.05 && rm djbdns-1.05.tar.gz
-
-RUN apt-get install -y curl
-
-RUN useradd svclog && useradd dnscache && useradd tinydns
-RUN dnscache-conf dnscache svclog /etc/dnscache
-RUN tinydns-conf tinydns svclog /etc/tinydns 0.0.0.0
-
-
-RUN touch /etc/dnscache/root/ip/172
-RUN rm /etc/dnscache/root/ip/127.0.0.1
-RUN echo "#!/bin/sh" > /etc/dnscache/log/run
-RUN echo "exec setuidgid svclog multilog t '-*' '+* fatal: *' ./main" >> /etc/dnscache/log/run
 
 
 
-RUN mkdir /service && ln -s /etc/dnscache /service/dnscache && ln -s /etc/tinydns /service/tinydns && ln -s /service/ /etc/service
+
+
+RUN adduser seed -u 666 -g 666 -D && apk add --update --virtual build-deps build-base python-dev && \
+	apk add python curl wget make bind-tools && \
+	wget https://cr.yp.to/djbdns/djbdns-1.05.tar.gz && \
+	tar xvfz djbdns-1.05.tar.gz && \
+	echo gcc -O2 -include /usr/include/errno.h > djbdns-1.05/conf-cc && \
+	cd djbdns-1.05;make -j 4 setup check && cd .. && \
+	rm -rf /djbdns-1.05 && rm djbdns-1.05.tar.gz && \
+	wget http://cr.yp.to/daemontools/daemontools-0.76.tar.gz && \
+	tar xvfz daemontools-0.76.tar.gz && \
+	echo gcc -O2 -include /usr/include/errno.h > admin/daemontools-0.76/src/conf-cc && \
+	cd admin/daemontools-0.76/ && sh package/install && \
+#	cd / && rm -rf /admin && \
+	rm /daemontools-0.76.tar.gz && \
+	curl -sS https://bootstrap.pypa.io/get-pip.py | python && \
+	pip install docker-py && \
+	apk del build-deps && \
+	adduser -S svclog && adduser -S dnscache && adduser -S tinydns && \
+	dnscache-conf dnscache svclog /etc/dnscache && \
+	tinydns-conf tinydns svclog /etc/tinydns 0.0.0.0 && \
+	ln -s /etc/dnscache /service/dnscache && ln -s /etc/tinydns /service/tinydns && ln -s /service/ /etc/service && \
+	touch /etc/dnscache/root/ip/172 && \
+	echo "#!/bin/sh" > /etc/dnscache/log/run && \
+	echo "exec setuidgid svclog multilog t '-*' '+* fatal: *' ./main" >> /etc/dnscache/log/run && \
+	echo "127.0.0.1">/etc/dnscache/root/servers/docker && echo "127.0.0.1">/etc/dnscache/root/servers/0.17.172.in-addr.arpa 
+
 
 
 COPY ./htpasswd /etc/tinydns/
-RUN echo "127.0.0.1">/etc/dnscache/root/servers/docker
-RUN echo "127.0.0.1">/etc/dnscache/root/servers/0.18.172.in-addr.arpa
 
-RUN apt-get install -y python
-RUN apt-get install -y dnsutils
 
-COPY ./JSON.sh /
-COPY ./eventListener.sh /
-COPY ./manage.sh /
+COPY ./event.py /
 
 COPY ./docker-entrypoint.sh /
 COPY ./tinydnsdyn /usr/bin/

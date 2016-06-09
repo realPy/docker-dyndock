@@ -38,7 +38,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def refresh_cache(self):
 
-	errno = os.system("/usr/bin/svc -t /etc/dnscache/")
+	errno = os.system("/usr/local/bin/svc -t /etc/dnscache/")
 	if errno != 0:
 		raise RuntimeError("Problem refresh cache")
     
