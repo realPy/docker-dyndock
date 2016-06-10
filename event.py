@@ -5,6 +5,7 @@ import json
 import urllib2
 import hashlib
 import subprocess
+import base64
 DOCKER_SOCK = 'unix:///docker.sock'
 
 
@@ -16,6 +17,8 @@ def get(d, *keys):
 class DockerMonitor(object):
 	def __init__(self, client):
 		self.client=client
+		b64str=base64.encodestring('%s:%s' % ('root', 'root')).replace('\n', '')
+		self.basicAuth='Basic %s' % b64str
 
 	def run(self):
 		events = self.client.events()
@@ -37,19 +40,16 @@ class DockerMonitor(object):
 						self.delete_host(cid)
 		
 					#print "new event "+str(self.inspect(cid))
-
+#
 	def add_host(self,cid):
 		info= self.inspect(cid)
 		m = hashlib.md5()
 		m.update(cid)
 		hash = m.hexdigest()
 		url="http://localhost/?hostname=%s.docker&myip=%s&uuid=%s.docker" % (info[0][1:],info[1],hash)
-		password_mgr = urllib2.HTTPPasswordMgrWithDefaultRealm()
-		password_mgr.add_password(None, 'http://localhost/', 'root', 'root')
-		auth_handler = urllib2.HTTPBasicAuthHandler(password_mgr)
-		myopener = urllib2.build_opener(auth_handler)
-		opened = urllib2.install_opener(myopener)
-		urllib2.urlopen(url).read()
+		req = urllib2.Request(url)
+		req.add_header('Authorization', self.basicAuth)
+		urllib2.urlopen(req).read()
 
 	def delete_host(self,cid):
 		
@@ -57,16 +57,15 @@ class DockerMonitor(object):
 		m.update(cid)
 		hash = m.hexdigest()
 		domainname=subprocess.check_output("dig +time=0 +tries=0 +short %s.docker TXT | cut -d \"\\\"\" -f2" % (hash),shell=True)
-		password_mgr = urllib2.HTTPPasswordMgrWithDefaultRealm()
-		password_mgr.add_password(None, 'http://localhost/', 'root', 'root')
-		auth_handler = urllib2.HTTPBasicAuthHandler(password_mgr)
-		myopener = urllib2.build_opener(auth_handler)
-		opened = urllib2.install_opener(myopener)
 		
 		url="http://localhost/delete?hostname=%s" % (domainname)
-		urllib2.urlopen(url).read()
+		req = urllib2.Request(url)
+		req.add_header('Authorization', self.basicAuth)
+		urllib2.urlopen(req).read()
 		url="http://localhost/delete?hostname=%s" % (hash+".docker")
-		urllib2.urlopen(url).read()
+		req = urllib2.Request(url)
+		req.add_header('Authorization', self.basicAuth)
+		urllib2.urlopen(req).read()
 
 
 

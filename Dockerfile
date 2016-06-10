@@ -15,13 +15,14 @@ RUN adduser seed -u 666 -g 666 -D && apk add --update --virtual build-deps build
 	wget https://cr.yp.to/djbdns/djbdns-1.05.tar.gz && \
 	tar xvfz djbdns-1.05.tar.gz && \
 	echo gcc -O2 -include /usr/include/errno.h > djbdns-1.05/conf-cc && \
-	cd djbdns-1.05;make -j 4 setup check && cd .. && \
+	cd djbdns-1.05 && \ 	
+	wget http://skarnet.org/software/djbdns-fwdzone/djbdns-1.04-fwdzone.patch && patch -p1 < djbdns-1.04-fwdzone.patch && \
+	make -j 4 setup check && cd .. && \
 	rm -rf /djbdns-1.05 && rm djbdns-1.05.tar.gz && \
 	wget http://cr.yp.to/daemontools/daemontools-0.76.tar.gz && \
 	tar xvfz daemontools-0.76.tar.gz && \
 	echo gcc -O2 -include /usr/include/errno.h > admin/daemontools-0.76/src/conf-cc && \
 	cd admin/daemontools-0.76/ && sh package/install && \
-#	cd / && rm -rf /admin && \
 	rm /daemontools-0.76.tar.gz && \
 	curl -sS https://bootstrap.pypa.io/get-pip.py | python && \
 	pip install docker-py && \
