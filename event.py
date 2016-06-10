@@ -6,6 +6,7 @@ import urllib2
 import hashlib
 import subprocess
 import base64
+import os
 DOCKER_SOCK = 'unix:///docker.sock'
 
 
@@ -17,7 +18,7 @@ def get(d, *keys):
 class DockerMonitor(object):
 	def __init__(self, client):
 		self.client=client
-		b64str=base64.encodestring('%s:%s' % ('root', 'root')).replace('\n', '')
+		b64str=base64.encodestring('%s:%s' % (os.environ['API_USER'], os.environ['API_PWD'])).replace('\n', '')
 		self.basicAuth='Basic %s' % b64str
 
 	def run(self):

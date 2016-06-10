@@ -8,10 +8,12 @@ MAINTAINER Tesla <tesla@v-ip.fr>
 
 
 
+ENV API_USER "root"
+ENV API_PWD "root"
 
 
 RUN adduser seed -u 666 -g 666 -D && apk add --update --virtual build-deps build-base python-dev && \
-	apk add python curl wget make bind-tools && \
+	apk add python curl wget make bind-tools apache2-utils && \
 	wget https://cr.yp.to/djbdns/djbdns-1.05.tar.gz && \
 	tar xvfz djbdns-1.05.tar.gz && \
 	echo gcc -O2 -include /usr/include/errno.h > djbdns-1.05/conf-cc && \
@@ -36,9 +38,6 @@ RUN adduser seed -u 666 -g 666 -D && apk add --update --virtual build-deps build
 	echo "exec setuidgid svclog multilog t '-*' '+* fatal: *' ./main" >> /etc/dnscache/log/run && \
 	echo "127.0.0.1">/etc/dnscache/root/servers/docker && echo "127.0.0.1">/etc/dnscache/root/servers/0.17.172.in-addr.arpa 
 
-
-
-COPY ./htpasswd /etc/tinydns/
 
 
 COPY ./event.py /
