@@ -21,7 +21,7 @@ RUN adduser seed -u 666 -g 666 -D && apk add --update --virtual build-deps build
 	cd djbdns-1.05 && \ 	
 	patch -p1 < /djbdns-fwdzone.patch && \
 	make -j 4 setup check && cd .. && \
-	rm -rf /djbdns-1.05 && rm djbdns-1.05.tar.gz && \
+	rm -rf /djbdns-1.05 && rm djbdns-1.05.tar.gz && rm /djbdns-fwdzone.patch && \
 	wget http://cr.yp.to/daemontools/daemontools-0.76.tar.gz && \
 	tar xvfz daemontools-0.76.tar.gz && \
 	echo gcc -O2 -include /usr/include/errno.h > admin/daemontools-0.76/src/conf-cc && \
