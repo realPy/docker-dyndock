@@ -11,6 +11,7 @@ MAINTAINER Tesla <tesla@v-ip.fr>
 ENV API_USER "root"
 ENV API_PWD "root"
 
+COPY ./djbdns-fwdzone.patch /
 
 RUN adduser seed -u 666 -g 666 -D && apk add --update --virtual build-deps build-base python-dev && \
 	apk add python curl wget make bind-tools apache2-utils && \
@@ -18,7 +19,7 @@ RUN adduser seed -u 666 -g 666 -D && apk add --update --virtual build-deps build
 	tar xvfz djbdns-1.05.tar.gz && \
 	echo gcc -O2 -include /usr/include/errno.h > djbdns-1.05/conf-cc && \
 	cd djbdns-1.05 && \ 	
-	wget http://skarnet.org/software/djbdns-fwdzone/djbdns-1.04-fwdzone.patch && patch -p1 < djbdns-1.04-fwdzone.patch && \
+	patch -p1 < /djbdns-fwdzone.patch && \
 	make -j 4 setup check && cd .. && \
 	rm -rf /djbdns-1.05 && rm djbdns-1.05.tar.gz && \
 	wget http://cr.yp.to/daemontools/daemontools-0.76.tar.gz && \

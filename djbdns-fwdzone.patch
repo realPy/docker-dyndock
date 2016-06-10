@@ -1,0 +1,207 @@
+diff -N -U 3 djbdns-1.04/FILES djbdns-1.04-fwdzone/FILES
+--- djbdns-1.04/FILES	Mon Jan 22 03:51:44 2001
++++ djbdns-1.04-fwdzone/FILES	Sun Jan 28 21:15:38 2001
+@@ -1,4 +1,5 @@
+ README
++README-fwdzone
+ TODO
+ CHANGES
+ VERSION
+diff -N -U 3 djbdns-1.04/README-fwdzone djbdns-1.04-fwdzone/README-fwdzone
+--- djbdns-1.04/README-fwdzone	Thu Jan  1 01:00:00 1970
++++ djbdns-1.04-fwdzone/README-fwdzone	Sun Jan 28 21:37:38 2001
+@@ -0,0 +1,31 @@
++This is djbdns-1.04-fwdzone. By Laurent Bercot <ska@idealx.com>
++
++ You may download, copy, use, modify and redistribute this patch under
++EXACTLY the same terms as djbdns. You don't have to get in touch with
++me to redistribute modified versions of this patch, but I'd like you to
++let me know. Thanks.
++
++
++ Instructions :
++
++ * Compile and install djbdns.
++
++ * The FORWARDONLY environment variable doesn't work anymore. By default,
++dnscache performs only iterative queries, like in pre-1.03 versions.
++
++ * Configure the root/servers directory of dnscache :
++   echo dns.server > my.iterative.zone
++
++   echo dns.cache > my.recursive.zone
++   chmod +t my.recursive.zone
++
++  If my.zone has the sticky bit set, dnscache will perform recursive queries
++for the zone : my.zone must contain a list of DNS caches to whom dnscache
++will forward the queries.
++  If my.zone has the sticky bit cleared, dnscache will perform iterative
++queries for the zone : my.zone must contains a list of appropriate DNS
++servers.
++
++ If @ has the sticky bit set, dnscache will forward any queries it cannot
++find a preconfigured zone for. This is most useful behind a firewall with
++a split-DNS configuration.
+diff -N -U 3 djbdns-1.04/dnscache.c djbdns-1.04-fwdzone/dnscache.c
+--- djbdns-1.04/dnscache.c	Mon Jan 22 03:51:44 2001
++++ djbdns-1.04-fwdzone/dnscache.c	Sun Jan 28 20:32:33 2001
+@@ -432,8 +432,6 @@
+ 
+   if (env_get("HIDETTL"))
+     response_hidettl();
+-  if (env_get("FORWARDONLY"))
+-    query_forwardonly();
+ 
+   if (!roots_init())
+     strerr_die2sys(111,FATAL,"unable to read servers: ");
+diff -N -U 3 djbdns-1.04/query.c djbdns-1.04-fwdzone/query.c
+--- djbdns-1.04/query.c	Mon Jan 22 03:51:44 2001
++++ djbdns-1.04-fwdzone/query.c	Sun Jan 28 20:29:37 2001
+@@ -13,13 +13,6 @@
+ #include "response.h"
+ #include "query.h"
+ 
+-static int flagforwardonly = 0;
+-
+-void query_forwardonly(void)
+-{
+-  flagforwardonly = 1;
+-}
+-
+ static void cachegeneric(const char type[2],const char *d,const char *data,unsigned int datalen,uint32 ttl)
+ {
+   unsigned int len;
+@@ -376,13 +369,14 @@
+ 
+   for (;;) {
+     if (roots(z->servers[z->level],d)) {
++      recflag(&z->isrecursive[z->level],d) ;
+       for (j = 0;j < QUERY_MAXNS;++j)
+         dns_domain_free(&z->ns[z->level][j]);
+       z->control[z->level] = d;
+       break;
+     }
+ 
+-    if (!flagforwardonly && (z->level < 2))
++    if (!z->isrecursive[z->level] && (z->level < 2))
+       if (dlen < 255) {
+         byte_copy(key,2,DNS_T_NS);
+         byte_copy(key + 2,dlen,d);
+@@ -431,11 +425,11 @@
+   dns_sortip(z->servers[z->level],64);
+   if (z->level) {
+     log_tx(z->name[z->level],DNS_T_A,z->control[z->level],z->servers[z->level],z->level);
+-    if (dns_transmit_start(&z->dt,z->servers[z->level],flagforwardonly,z->name[z->level],DNS_T_A,z->localip) == -1) goto DIE;
++    if (dns_transmit_start(&z->dt,z->servers[z->level],z->isrecursive[z->level],z->name[z->level],DNS_T_A,z->localip) == -1) goto DIE;
+   }
+   else {
+     log_tx(z->name[0],z->type,z->control[0],z->servers[0],0);
+-    if (dns_transmit_start(&z->dt,z->servers[0],flagforwardonly,z->name[0],z->type,z->localip) == -1) goto DIE;
++    if (dns_transmit_start(&z->dt,z->servers[0],z->isrecursive[z->level],z->name[0],z->type,z->localip) == -1) goto DIE;
+   }
+   return 0;
+ 
+diff -N -U 3 djbdns-1.04/query.h djbdns-1.04-fwdzone/query.h
+--- djbdns-1.04/query.h	Mon Jan 22 03:51:44 2001
++++ djbdns-1.04-fwdzone/query.h	Sun Jan 28 20:25:22 2001
+@@ -15,6 +15,7 @@
+   char *control[QUERY_MAXLEVEL]; /* pointing inside name */
+   char *ns[QUERY_MAXLEVEL][QUERY_MAXNS];
+   char servers[QUERY_MAXLEVEL][64];
++  int isrecursive[QUERY_MAXLEVEL];
+   char *alias[QUERY_MAXALIAS];
+   uint32 aliasttl[QUERY_MAXALIAS];
+   char localip[4];
+diff -N -U 3 djbdns-1.04/roots.c djbdns-1.04-fwdzone/roots.c
+--- djbdns-1.04/roots.c	Mon Jan 22 03:51:44 2001
++++ djbdns-1.04-fwdzone/roots.c	Sun Jan 28 21:48:50 2001
+@@ -1,3 +1,6 @@
++#include <sys/types.h>
++#include <sys/stat.h>
++
+ #include <unistd.h>
+ #include "open.h"
+ #include "error.h"
+@@ -11,6 +14,7 @@
+ #include "roots.h"
+ 
+ static stralloc data;
++static stralloc recursive;
+ 
+ static int roots_find(char *q)
+ {
+@@ -49,6 +53,15 @@
+   return 1;
+ }
+ 
++int recflag(int *isrecursive,char *q)
++{
++  int r;
++  r = roots_find(q);
++  if (r == -1) return 0;
++  *isrecursive=!!recursive.s[r];
++  return 1;
++}
++
+ int roots_same(char *q,char *q2)
+ {
+   return roots_search(q) == roots_search(q2);
+@@ -61,6 +74,7 @@
+   static char *q;
+   static stralloc text;
+   char servers[64];
++  char recbuf[64];
+   int serverslen;
+   int i;
+   int j;
+@@ -76,11 +90,19 @@
+     if (d->d_name[0] != '.') {
+       if (openreadclose(d->d_name,&text,32) != 1) return 0;
+       if (!stralloc_append(&text,"\n")) return 0;
+-
+       fqdn = d->d_name;
++      {
++        struct stat st;
++        if (stat(fqdn,&st) == -1) return 0;
++        if (st.st_mode & 01000)
++        {
++	  int a ;
++	  for (a=0 ; a<64 ; a++) recbuf[a]=0xFF ;
++        }
++	else byte_zero(recbuf,64) ;
++      }
+       if (str_equal(fqdn,"@")) fqdn = ".";
+       if (!dns_domain_fromdot(&q,fqdn,str_len(fqdn))) return 0;
+-
+       serverslen = 0;
+       j = 0;
+       for (i = 0;i < text.len;++i)
+@@ -93,7 +115,9 @@
+       byte_zero(servers + serverslen,64 - serverslen);
+ 
+       if (!stralloc_catb(&data,q,dns_domain_length(q))) return 0;
++      if (!stralloc_catb(&recursive,q,dns_domain_length(q))) return 0;
+       if (!stralloc_catb(&data,servers,64)) return 0;
++      if (!stralloc_catb(&recursive,recbuf,64)) return 0;
+     }
+   }
+ }
+@@ -117,6 +141,7 @@
+   int r;
+ 
+   if (!stralloc_copys(&data,"")) return 0;
++  if (!stralloc_copys(&recursive,"")) return 0;
+ 
+   fddir = open_read(".");
+   if (fddir == -1) return 0;
+diff -N -U 3 djbdns-1.04/roots.h djbdns-1.04-fwdzone/roots.h
+--- djbdns-1.04/roots.h	Mon Jan 22 03:51:44 2001
++++ djbdns-1.04-fwdzone/roots.h	Sun Jan 28 20:30:03 2001
+@@ -2,6 +2,7 @@
+ #define ROOTS_H
+ 
+ extern int roots(char *,char *);
++extern int recflag(int *,char *);
+ extern int roots_same(char *,char *);
+ extern int roots_init(void);
+ 
