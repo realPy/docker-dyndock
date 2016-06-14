@@ -24,9 +24,9 @@ class DockerMonitor(object):
 	def run(self):
 		events = self.client.events()
 		for container in self.client.containers():
-			if container["State"] == "running" :
+			rec = self.client.inspect_container(get(container,"Id"))
+			if rec["State"]["Status"] == "running" :
 				self.add_host(get(container,"Id"))
-			print "%s %s" % (container["Names"],container["State"])
 		for raw in events:
 			evt = json.loads(raw)
  			if evt.get('Type', 'container') == 'container':
